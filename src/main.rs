@@ -71,6 +71,7 @@ async fn main() {
     let mut writer = control.writer().clone();
 
     // because we waited for IrcReady, we can confidently join channels
+    info!("joining {} channels", channels.len());
     for channel in channels {
         writer.join(channel).await.unwrap();
     }
@@ -79,15 +80,17 @@ async fn main() {
     loop {
         tokio::select! {
             Some(join_msg) = join.next() => {
-                info!("{} joined {}", join_msg.name, join_msg.channel);
+                info!("joined {}", join_msg.channel);
             }
 
             Some(part_msg) = part.next() => {
-                info!("{} left {}", part_msg.name, part_msg.channel);
+                info!("left {}", part_msg.channel);
             }
 
             Some(msg) = privmsg.next() => {
-                info!("PRIVMSG: [{}] {}: {}", msg.channel, msg.name, msg.data);
+                debug!("PRIVMSG: [{}] {}: {}", msg.channel, msg.name, msg.data);
+
+                let message = msg.data.clone().into_owned().escape_default().to_string();
 
                 // This creates a query which writes a new measurement into a series called like
                 // the channel
@@ -95,10 +98,10 @@ async fn main() {
                     .add_field("channel", msg.channel.clone().into_owned())
                     .add_field("name", msg.name.clone().into_owned())
                     .add_field("mod", msg.is_moderator())
-                    .add_field("message", msg.data.clone().into_owned());
+                    .add_field("message", message);
 
                 let write_query = match msg.display_name() {
-                    Some(n) => write_query.add_tag("display_name", n.clone().into_owned()),
+                    Some(n) => write_query.add_tag("display_name", n.clone().into_owned().escape_default().to_string()),
                     None => write_query,
                 };
 
@@ -127,7 +130,6 @@ async fn main() {
                     Ok(_) => {},
                     Err(e) => error!("Write to InfluxDB: {}", e),
                 };
-
             }
 
             // when the 3 streams in this select are done this'll get hit

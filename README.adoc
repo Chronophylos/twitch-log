@@ -4,6 +4,6 @@
 
 Install https://www.influxdata.com[InfluxDB].
 
-Build the binary with `cargo build --release` or get it from  https://github.com/Chronophylos/twitch-log/releases/tag/latest[releases].
+Build the binary with `cargo build --release` or get it from  https://github.com/Chronophylos/twitch-log/releases/latest[releases].
 
 Create a influx database. Run `influx`. And then `CREATE DATABASE twitch`. The database name can be configured in the config file.

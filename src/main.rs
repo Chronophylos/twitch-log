@@ -3,39 +3,109 @@ extern crate log;
 extern crate config;
 
 use influxdb::{Client, Query, Timestamp};
-use simplelog::*;
+use simplelog::{Config, LevelFilter, TermLogError, TermLogger, TerminalMode};
+use snafu::{ResultExt, Snafu};
 use tokio::stream::StreamExt as _;
 
+#[derive(Debug, Snafu)]
+enum Error {
+    #[snafu(display("Initializing TermLogger: {}", source))]
+    InitTermLogger { source: TermLogError },
+
+    #[snafu(display("Merging config: {}", source))]
+    MergingConfig { source: config::ConfigError },
+
+    #[snafu(display(
+        "Setting default for config (key: {}, value: {}): {}",
+        key,
+        value,
+        source
+    ))]
+    SetConfigDefault {
+        key: &'static str,
+        value: &'static str,
+        source: config::ConfigError,
+    },
+
+    #[snafu(display("Getting value from config (key: {}): {}", key, source))]
+    GetValueFromConfig {
+        key: &'static str,
+        source: config::ConfigError,
+    },
+
+    #[snafu(display("Converting config values to string: {}", source))]
+    ConvertChannelsToString { source: config::ConfigError },
+
+    #[snafu(display("Building UserConfig: {}", source))]
+    BuildUserConfig { source: twitchchat::UserConfigError },
+
+    #[snafu(display("Connecting to Twitch: {}", source))]
+    ConnectToTwitch { source: std::io::Error },
+
+    #[snafu(display("Waiting for IRCREADY from Twitch: {}", source))]
+    WaitingForIrcReady { source: twitchchat::Error },
+
+    #[snafu(display("Joining channel (name: {}): {}", name, source))]
+    JoinChannel {
+        name: String,
+        source: twitchchat::Error,
+    },
+
+    #[snafu(display("Resolving twitch client: {}", source))]
+    ResolvingTwitchClient { source: tokio::task::JoinError },
+}
+
 #[tokio::main]
-async fn main() {
-    TermLogger::init(LevelFilter::Info, Config::default(), TerminalMode::Mixed).unwrap();
+async fn main() -> Result<(), Error> {
+    TermLogger::init(LevelFilter::Info, Config::default(), TerminalMode::Mixed)
+        .context(InitTermLogger)?;
 
     let mut settings = config::Config::default();
 
     settings
         .merge(config::File::with_name("config"))
-        .unwrap()
+        .context(MergingConfig)?
         .merge(config::Environment::with_prefix("TWITCH_LOG"))
-        .unwrap();
+        .context(MergingConfig)?;
 
     settings
         .set_default("influxdb.url", "http://localhost:8086")
-        .unwrap()
+        .context(SetConfigDefault {
+            key: "influxdb.url",
+            value: "http:://localhost:8086",
+        })?
         .set_default("influxdb.db", "twitch")
-        .unwrap();
+        .context(SetConfigDefault {
+            key: "influxdb.db",
+            value: "twitch",
+        })?;
 
-    let channels = settings.get_array("twitch.channels").unwrap();
+    let channels: Vec<String> = settings
+        .get_array("twitch.channels")
+        .context(GetValueFromConfig {
+            key: "twitch.channels",
+        })?
+        .iter()
+        .map(|v| v.clone().into_str())
+        .collect::<Result<Vec<String>, _>>()
+        .context(ConvertChannelsToString)?;
 
     let client = Client::new(
-        settings.get_str("influxdb.url").unwrap(),
-        settings.get_str("influxdb.db").unwrap(),
+        settings
+            .get_str("influxdb.url")
+            .context(GetValueFromConfig {
+                key: "influxdb.url",
+            })?,
+        settings
+            .get_str("influxdb.db")
+            .context(GetValueFromConfig { key: "influxdb.db" })?,
     );
 
     // make a user config, builder lets you configure it.
     let user_config = twitchchat::UserConfig::builder()
         .anonymous()
         .build()
-        .unwrap();
+        .context(BuildUserConfig)?;
 
     // get dispatcher to subscribe to events
     let dispatcher = twitchchat::Dispatcher::new();
@@ -52,7 +122,9 @@ async fn main() {
         twitchchat::Runner::new(dispatcher.clone(), twitchchat::RateLimit::default());
 
     // the conn type is an tokio::io::{AsyncRead + AsyncWrite}
-    let stream = twitchchat::connect_tls(&user_config).await.unwrap();
+    let stream = twitchchat::connect_tls(&user_config)
+        .await
+        .context(ConnectToTwitch)?;
 
     // spawn the run off in another task so we don't block the current one.
     // you could just await on the future at the end of whatever block, but this is easier for this demonstration
@@ -64,7 +136,7 @@ async fn main() {
     let ready = dispatcher
         .wait_for::<twitchchat::events::IrcReady>()
         .await
-        .unwrap();
+        .context(WaitingForIrcReady)?;
     debug!("irc ready: nickname: {}", ready.nickname);
 
     // we can clone the writer and send it places
@@ -72,8 +144,10 @@ async fn main() {
 
     // because we waited for IrcReady, we can confidently join channels
     info!("joining {} channels", channels.len());
-    for channel in channels {
-        writer.join(channel).await.unwrap();
+    for channel in &channels {
+        writer.join(channel).await.context(JoinChannel {
+            name: channel.to_string(),
+        })?;
     }
 
     // a fancy main loop without using tasks
@@ -139,7 +213,7 @@ async fn main() {
 
     // await for the client to be done
     // unwrap the JoinHandle
-    match handle.await.unwrap() {
+    match handle.await.context(ResolvingTwitchClient)? {
         Ok(twitchchat::Status::Eof) => {
             info!("done!");
         }
@@ -152,4 +226,6 @@ async fn main() {
     }
 
     dispatcher.clear_subscriptions_all();
+
+    Ok(())
 }

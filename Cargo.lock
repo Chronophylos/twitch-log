@@ -1448,7 +1448,7 @@ checksum = "e604eb7b43c06650e854be16a2a03155743d3752dd1c943f6829e26b7a36e382"
 
 [[package]]
 name = "twitch-log"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "config",
  "influxdb",

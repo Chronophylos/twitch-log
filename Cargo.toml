@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-config        = { version = "0.10", features = ["toml"] }
+config        = { version = "0.10", default-features = false, features = ["toml"] }
 influxdb      = "0.0.6"
 log           = "0.4"
 r2d2          = "0.8"
@@ -15,4 +15,4 @@ r2d2-influxdb = "0.1"
 simplelog     = "0.7"
 snafu         = "0.6"
 tokio         = { version = "0.2", default-features = false, features = ["macros"] }
-twitchchat    = { version = "0.9", default-features = false, features = ["async", "tokio_rustls"] }
+twitchchat    = "0.9"

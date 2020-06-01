@@ -1,6 +1,6 @@
 [package]
 name = "twitch-log"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["Chronophylos <nikolai@chronophylos.com>"]
 edition = "2018"
 
